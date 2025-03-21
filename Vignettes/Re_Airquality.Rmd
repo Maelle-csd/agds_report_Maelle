@@ -1,0 +1,125 @@
+---
+title: "Re_Airquality"
+author: "Maelle Cosandey"
+date: "2025-03-11"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(ggplot2)
+library(readr)
+library(lubridate)
+library(knitr)
+library(ppcor)
+library(dplyr)
+```
+
+```{r download, include=FALSE}
+Data <- datasets::airquality
+```
+
+## Introduction
+
+The dataset contains daily air quality measurements in New York, for the period first of May 1973 to 30th September 1973. The different variables are ozone concentration [ppb], solar radiation [lang], wind speed [miles/hour], temperature [°F] and time [day and months]. 
+It's important to notice that some units are quite unusual
+
+Because ozone presence in the troposphere is toxic, the aim of this study will be to determine which meteorological variables (wind speed, radiation and temperature) have an influence on ozone formation. The hypothesis is that temperature and radiation will be positively correlated with ozone concentration, and wind negatively correlated. 
+
+## Data
+
+At first, the missing values have been removed 
+
+```{r clean NA}
+Data <- na.omit(Data)
+```
+
+Then a summary of the data has been made, to visualize the mean and the variation of the different variables
+
+```{r summary}
+# Compute mean and std
+small_Data <- Data %>% 
+  dplyr::select(Ozone, Solar.R, Wind, Temp)
+
+summary_table <- small_Data %>% 
+  summarise(across(everything(), list(
+    Mean = ~ mean(.x, na.rm = TRUE),
+    Std = ~ sd(.x, na.rm = TRUE)
+  )))
+
+# Transpose to present
+summary_table_t <- summary_table %>%
+  tidyr::pivot_longer(everything(),
+                      names_to = c("Variable", ".value"),
+                      names_sep = "_")
+
+# present
+kable(summary_table_t, caption = "Summary of the variables")
+```
+
+## Analysis 
+
+At first a time serie of ozone concentration has been made, showing ozone evolution through time
+
+```{r time serie}
+# Crate a date column
+Data$Date <- as.Date(paste(Data$Month, Data$Day, "1973", sep = "-"), format = "%m-%d-%Y")  # Assumes a common year
+
+# Time serie
+ozone_time_plot <- ggplot(data = Data, aes(x = Date, y = Ozone)) +
+  geom_line(color = "blue") + 
+  geom_point(color = "red", size = 0.75) +
+  geom_smooth(method = "loess", span = 0.5) +
+  labs(x = "Date", 
+       y = "Ozone Concentration (ppb)", 
+       title = "Evolution of ozone concentration") +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+#Print plot
+print(ozone_time_plot)
+
+```
+
+Then, scatter plot showing ozone concentration with every other variable, to visualize their link. 
+
+```{r correlation plot}
+# a. Ozone vs Wind
+plot_1 <- ggplot(data = Data, aes(x = Wind, y = Ozone)) +
+  geom_point(size = 0.75, color = "mediumorchid") +
+  geom_smooth(method = "lm", color = "mediumorchid4", se = FALSE) +
+  labs(x = "Wind (mph)", 
+       y = "Ozone (ppb)") +
+  theme_classic()
+
+# b. Ozone vs Solar.R
+plot_2 <- ggplot(data = Data, aes(x = Solar.R, y = Ozone)) +
+  geom_point(size = 0.75, color="deepskyblue" ) +
+  geom_smooth(method = "lm", color = "deepskyblue4", se = FALSE) +
+  labs(x = "Solar Radiation (Lang)", 
+       y = "Ozone (ppb)") +
+  theme_classic()
+
+# c. Ozone vs Temperature
+plot_3 <- ggplot(data = Data, aes(x = Temp, y = Ozone)) +
+  geom_point(size = 0.75, color="firebrick1") +
+  geom_smooth(method = "lm", color = "firebrick", se = FALSE) +
+  labs(x = "Temperature (°F)", 
+       y = "Ozone (ppb)") +
+  theme_classic()
+
+# Combiner les graphiques
+cowplot::plot_grid(plot_1, plot_2, plot_3, ncol = 3, labels = "auto")
+```
+
+## Conclusion 
+
+As excpected, temperature and radiation is positively correlated with ozone concentration, and wind is negatively correlated. But because temperature is already correlated with radiation, it seems interesting to explore the partial correlation between temperature and ozone concentration, to understand if temperature has an influence of ozone directly. 
+
+```{r correlation test}
+pcor.test(Data$Ozone, Data$Temp, Data$Solar.R)
+pcor.test(Data$Ozone, Data$Solar.R, Data$Temp)
+```
+This test suggest that temperature significantly influences Ozone independently of Solar Radiation.Solar Radiation's effect on Ozone is partly mediated by Temperature.
+In the data controlling for Temperature reduces the strength of the correlation between Ozone and Solar Radiation. 
+
+
