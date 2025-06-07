@@ -166,7 +166,7 @@ ggplot(df_aic, aes(x = Step, y = AIC)) +
     x = "Number of predictor",
     y = "AIC"
   ) +
-  scale_x_continuous(breaks = 1:10)
+  scale_x_continuous(breaks = 1:10) +
   theme_minimal()
 ```
 

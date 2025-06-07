@@ -62,7 +62,8 @@ At first a time serie of ozone concentration has been made, showing ozone evolut
 
 ```{r time serie}
 # Crate a date column
-Data$Date <- as.Date(paste(Data$Month, Data$Day, "1973", sep = "-"), format = "%m-%d-%Y")  # Assumes a common year
+Data$Date <- as.Date(paste(Data$Month, Data$Day, "1973", sep = "-"), format = "%m-%d-%Y")  # 
+#Assumes a common year
 
 # Time serie
 ozone_time_plot <- ggplot(data = Data, aes(x = Date, y = Ozone)) +
@@ -83,7 +84,7 @@ print(ozone_time_plot)
 Then, scatter plot showing ozone concentration with every other variable, to visualize their link. 
 
 ```{r correlation plot}
-# a. Ozone vs Wind
+# Ozone vs Wind
 plot_1 <- ggplot(data = Data, aes(x = Wind, y = Ozone)) +
   geom_point(size = 0.75, color = "mediumorchid") +
   geom_smooth(method = "lm", color = "mediumorchid4", se = FALSE) +
@@ -91,7 +92,7 @@ plot_1 <- ggplot(data = Data, aes(x = Wind, y = Ozone)) +
        y = "Ozone (ppb)") +
   theme_classic()
 
-# b. Ozone vs Solar.R
+# Ozone vs Solar.R
 plot_2 <- ggplot(data = Data, aes(x = Solar.R, y = Ozone)) +
   geom_point(size = 0.75, color="deepskyblue" ) +
   geom_smooth(method = "lm", color = "deepskyblue4", se = FALSE) +
@@ -99,7 +100,7 @@ plot_2 <- ggplot(data = Data, aes(x = Solar.R, y = Ozone)) +
        y = "Ozone (ppb)") +
   theme_classic()
 
-# c. Ozone vs Temperature
+# Ozone vs Temperature
 plot_3 <- ggplot(data = Data, aes(x = Temp, y = Ozone)) +
   geom_point(size = 0.75, color="firebrick1") +
   geom_smooth(method = "lm", color = "firebrick", se = FALSE) +
@@ -107,7 +108,7 @@ plot_3 <- ggplot(data = Data, aes(x = Temp, y = Ozone)) +
        y = "Ozone (ppb)") +
   theme_classic()
 
-# Combiner les graphiques
+# Combine plot
 cowplot::plot_grid(plot_1, plot_2, plot_3, ncol = 3, labels = "auto")
 ```
 
