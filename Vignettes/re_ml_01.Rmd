@@ -1,0 +1,192 @@
+---
+title: "re_ml01"
+author: "Maelle Cosandey"
+date: "2025-06-02"
+output:
+  html_document:
+    toc: true
+---
+
+## Introduction 
+
+This report aims to analyse and compare a KNN model and a linear regression model. Both models goal is to predict GPP values with the help of different predictor. This report is separate in 2 part, the first one comparing the KNN and the linear model, and the second part analysing the role of the number of k chosen. 
+
+```{r setup, include=FALSE}
+library(dplyr)
+library(ggplot2)
+library(readr)
+library(tidyr)
+library(caret)
+library(recipes)
+library(purrr)
+library(tibble)
+```
+
+```{r loading, include=FALSE}
+daily_fluxes <- read_csv("../data/FLX_CH-Dav_FLUXNET2015_FULLSET_DD_1997-2014_1-3.csv")
+```
+
+## Part 1
+
+### fitting and evaluating the linear regression model and the KNN model
+
+```{r split the data, warning = FALSE}
+# Data splitting
+set.seed(1982)  # for reproducibility
+split <- rsample::initial_split(daily_fluxes, prop = 0.7, strata = "VPD_F")
+daily_fluxes_train <- rsample::training(split)
+daily_fluxes_test <- rsample::testing(split)
+```
+
+```{r recipes, warning = FALSE}
+# Model and pre-processing formulation, use all variables but LW_IN_F
+pp <- recipes::recipe(GPP_NT_VUT_REF ~ SW_IN_F + VPD_F + TA_F, 
+                      data = daily_fluxes_train |> drop_na()) |> 
+  recipes::step_BoxCox(recipes::all_predictors()) |> 
+  recipes::step_center(recipes::all_numeric(), -recipes::all_outcomes()) |>
+  recipes::step_scale(recipes::all_numeric(), -recipes::all_outcomes())
+```
+
+```{r linear model, warning = FALSE}
+# Fit linear regression model
+mod_lm <- caret::train(
+  pp, 
+  data = daily_fluxes_train |> drop_na(), 
+  method = "lm",
+  trControl = caret::trainControl(method = "none"),
+  metric = "RMSE"
+)
+```
+
+```{r knn model, warning = FALSE}
+# Fit KNN model
+mod_knn <- caret::train(
+  pp, 
+  data = daily_fluxes_train |> drop_na(), 
+  method = "knn",
+  trControl = caret::trainControl(method = "none"),
+  tuneGrid = data.frame(k = 8),
+  metric = "RMSE"
+)
+```
+
+```{r eval model, echo=FALSE, warning=FALSE, message=FALSE}
+source("../R/eval_model.R")
+
+# linear regression model
+eval_model(mod = mod_lm, df_train = daily_fluxes_train, df_test = daily_fluxes_test)
+
+# KNN
+eval_model(mod = mod_knn, df_train = daily_fluxes_train, df_test = daily_fluxes_test)
+```
+
+### Interpret observed differences in the context of the bias-variance trade-off
+*Why is the difference between the evaluation on the training and the test set larger for the KNN model than for the linear regression model?*
+
+    The KNN model is very sensitive to the local structure of the data and can capture noise and irregularities well. In other words, it is highly flexible but tends to overfit the training data, which leads to a larger difference in performance between the training and test sets.
+
+    In contrast, linear regression assumes linearity, and is therefore more rigid. This lower flexibility helps it generalize better, resulting in more similar performance on both the training and test sets.
+
+*Why does the evaluation on the test set indicate a better model performance of the KNN model than the linear regression model?*
+
+    Because the relationship between the predictors and the target variable is probably not linear. Meaning that the KNN model can capture such pattern better than a linear model. 
+
+*How would you position the KNN and the linear regression model along the spectrum of the bias-variance trade-off?*
+
+    KNN, as explained before, is good to capture variation, meaning it has the potential to have a small bias, in the other hand, it is sensitive to noise and overfitting, so the performance can vary a lot between the sets, therefor, the variance can be quite large. 
+    For the the Linear regression model, it's the opposite, the bias can be quite large, because of the linearity assumption, but the variance has the potential to be low, because the model is very stable. 
+
+### Visualise temporal variations of observed and modelled GPP
+
+```{r fig.width=12, fig.height=6, out.width='100%', fig.align='center', echo=FALSE, warning=FALSE, message=FALSE}
+
+# Predict values with both models
+pred_lm <- predict(mod_lm, newdata = daily_fluxes_test)
+pred_knn <- predict(mod_knn, newdata = daily_fluxes_test)
+
+# df
+df_plot <- daily_fluxes_test %>%
+  select(TIMESTAMP, GPP_NT_VUT_REF) %>%
+  mutate(
+    `Linear model` = pred_lm,
+    `KNN model` = pred_knn
+  ) %>%
+  rename(`Observed GPP` = GPP_NT_VUT_REF) %>%
+  pivot_longer(cols = -TIMESTAMP, names_to = "Source", values_to = "GPP")
+
+# adapt date column
+df_plot <- df_plot %>%
+  mutate(TIMESTAMP = as.Date(as.character(TIMESTAMP), format = "%Y%m%d"))
+
+# plot
+ggplot(df_plot, aes(x = TIMESTAMP, y = GPP, color = Source)) +
+  geom_line(size = 0.5) +  # lignes brutes plus légères
+  labs(title = "Temporal Variations of Observed and Modelled GPP",
+       x = "Date", y = "GPP") +
+  scale_x_date(date_breaks = "3 years",
+               date_labels = "%b %Y") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = c(0.9, 0.9))
+```
+
+In the visualization, it is clear that the global pattern of GPP and it's seasonal variation is capture by both model. Given the size of the covered period, it is hard to analyse precisely this plot, but it seems that high value of GPP are not reached by the model, especially not by the linear regression model. 
+
+## Part 2
+
+### My hypothesis
+
+The way I understand it, When k approach 1, the variance between the different sets becomes very high because outliers become very important, and the model is too flexible. Concerning R^2 and MAE, I think they would become less good (R^2 smaller, MAE higher), if K approach N and if K approach 1 (except in the training data of the model with k close to one, where MAE and R^2 could be really good). In the case of K approching N, the prediction would tend to all be equal to the mean, beacause all the data will be included to predict a new one. This would however implies that the variance between different sets would be very low, but as explained, the bias would be very high, and the R^2 would tend to 0. 
+
+### Test the hypothesis
+
+```{r calculate MAE, include=FALSE}
+source("../R/get_mae.R")
+results <- map_dfr(1:100, ~get_mae(.x, daily_fluxes_train, daily_fluxes_test))
+```
+
+```{r plot MAE, echo=FALSE, warning=FALSE, message=FALSE}
+results_long <- results |> 
+  tidyr::pivot_longer(cols = c(mae_test,mae_train), 
+                      names_to = "dataset", 
+                      values_to = "mae")
+
+ggplot(results_long, aes(x = k, y = mae, color = dataset)) +
+  geom_line(size = 0.5) +
+  labs(title = "MAE as function of k (KNN)",
+       x = "k",
+       y = "MAE",
+       color = "Dataset") +
+  theme_minimal()
+```
+
+The MAE curve on the test set clearly shows three phases. For small values of k (less than about 15), the MAE is high, this is the first phase. Then, the MAE decreases steadily between approximately k = 15 and k = 50, which represents the second phase. Finally, the MAE slowly increases again beyond k = 50, marking the third phase. The second phase corresponds to the optimal choice of k. The first phase reflects an overfitting region, while the third phase indicates underfitting.
+
+### Find the optimal k 
+
+To find the optimal k, we need the k that gives the lowest value of MAE for the test set : 
+
+```{r optimal k}
+# Find the min
+min_k <- results %>% filter(mae_test == min(mae_test)) %>% slice(1)
+# Print
+print(paste("The optimal k for this situation is", min_k$k, "which give a MAE of : ",min_k$mae_test))
+```
+Visible in the following plot : 
+
+```{r plot optimal k, echo=FALSE, warning=FALSE, message=FALSE}
+# Plot
+ggplot(results, aes(x = k, y = mae_test)) +
+  geom_line(color = "steelblue") +
+  geom_point(color = "steelblue") +
+  geom_point(data = min_k, aes(x = k, y = mae_test), color = "red", size = 3) +
+  geom_text(data = min_k, aes(label = paste0("Min: k = ", k)), nudge_x = 7,
+            vjust = -1, color = "red") +
+  geom_vline(xintercept = min_k$k, linetype = "dashed", color = "red") +
+  theme_minimal() +
+  labs(title = "MAE as function of k",
+       y = "MAE",
+       x = "k")
+```
+
+We also see here that MAE doesn't vary a lot around 30, so in this example, an optimal k in terms of model generalisability could be between 25 and 50. 

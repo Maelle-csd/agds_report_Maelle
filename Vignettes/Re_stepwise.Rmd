@@ -1,0 +1,174 @@
+---
+title: "Re_stepwise"
+author: "Maelle Cosandey"
+date: "2025-04-23"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(dplyr)
+```
+
+## Introduction
+
+This report aims to perform a stepwise regression on a dataset containing micrometeorological variables. Stepwise regression is a method used to select the most relevant predictors for a response variable. In this case, the goal is to predict Gross Primary Production (GPP), which is the rate at which autotrophs produce organic carbon.
+
+```{r download, include=FALSE}
+df <- read.csv("../data/df_for_stepwise_regression.csv")
+```
+
+```{r prep data, include=FALSE}
+df <- df |> relocate(GPP_NT_VUT_REF, .after = last_col()) #relocate predicted column at the end 
+df <- df <- df[, -c(1, 2)] # crop time and site that are not predictors
+```
+
+```{r}
+# Initialization
+n <- ncol(df) - 1                  # n is the number of possible predictor
+linmod <- vector("list",n)         # initialisation of a vector to store the linear model
+r2_vec <- numeric(n)               # initilaistaion of a vector to store R^2  
+predictors <- colnames(df)[1:n]    # create a vector with the name of the n predictor
+
+```
+
+## Bivariate model
+
+At first a loop to find the best predictor has been implemented.
+
+```{r find the best bivariate model}
+# For loop to calculate the linear regression with all predictor, and calculate the coefficient of determination (R^2)
+for (i in 1:n){
+  formule <- as.formula(paste("GPP_NT_VUT_REF ~", predictors[i]))
+  linmod[[i]] <- lm(formule, data = df)
+  r2_vec[i] <- summary(linmod[[i]])$r.squared
+}
+
+names(r2_vec) <- predictors                 # Add predictors name
+index_best_model_bi <- which.max(r2_vec)    # find the best R^2
+AIC <- AIC(linmod[[index_best_model_bi]])   # calculate the AIC for the best predictor
+print(paste("The best predictor is : ", names(index_best_model_bi), ", with an AIC of : ", AIC))
+```
+
+PPFD_IN is the incoming Photosynthetic photon flux density. Which is how much photon useful for the photosynthesis arrive, it make sense that it is a good predictor for GPP, because GPP is directly linked to photosynthesis.  
+
+To better visualize the role of PPFD_IN as predictor for GPP_NT_VUT_REF a scatter plot has been made, where all points have in x the score of PPFD_IN and in y the score of GPP_NT_VUT_REF. A linear regression has been add in red, to better visualize the relationship between the two variables. Given the important number of data, only 2000 points are represent in the plot.    
+
+```{r plot PPFD as predictor, echo = FALSE, message = FALSE, warning = FALSE}
+plot_1 <- df |>
+  sample_n(2000) |>  # to reduce the dataset
+  ggplot(aes(x = PPFD_IN, y = GPP_NT_VUT_REF)) +
+  geom_point(size = 0.75, alpha = 0.4) +
+  geom_smooth(method = "lm", color = "red", se = FALSE) +
+  labs(x = expression(paste("Incoming photosynthetic flux density")), 
+       y = expression(paste("GPP (gC m"^-2, "s"^-1, ")"))) +
+  theme_classic()
+plot_1
+```
+
+A clear positive correlation appear between the two variables, more incoming photon tend to more GPP. But it's also visible that the the points are spread around the trend, showing that PPFD_IN is not sufficient to describe GPP_NT_VUT_REF. Therefore, in the next step, the aim will be to find other predictor, to help predict GPP_NT_VUT_REF. 
+
+## The stepwise regression
+
+```{r the stepwise regression}
+# Initialization
+AIC_old <- 1000000000          # set a high AIC
+linmod <- vector("list",n)     # initialization of a vector to store the linear model
+r2_vec <- numeric(n)           # initialization of a vector to store R^2
+AIC_vec <- numeric(9)          # initialization of a vector to store AIC
+AIC_vec[1] <- AIC
+
+# Store the best predictor found in the previous loop, as first predictor to use
+used_pred <- c(predictors[index_best_model_bi])
+
+# Loop to find the best set of predictor
+for (p in 2:n){ 
+  # For loop to calculate the linear regression between the already chosen predictor and the potential new one
+  for (i in 1:n){
+    if (!(predictors[i] %in% used_pred)){ # condtion to check to not compare the chosen predictor with an already chosen predictor
+      # add a potential new predictor to the list of predictor and calculate the linear model
+      test_pred <- c(used_pred,predictors[i]) 
+      formule <- as.formula(paste("GPP_NT_VUT_REF ~", paste(test_pred, collapse = " + ")))
+      linmod[[i]] <- lm(formule, data = df)
+      r2_vec[i] <- summary(linmod[[i]])$r.squared
+    }
+  }
+  
+  names(r2_vec) <- predictors                      # Add predictors name
+  index_best_model <- which.max(r2_vec)            # find the new predictor that gives the best R^2
+  
+  # calculate the new AIC with the new predictor added
+    AIC_new <- AIC(linmod[[index_best_model]]) 
+    AIC_vec[p] <- AIC_new
+  
+  if (AIC_new > AIC_old){ # Check that the new AIC is smaller than the old one, to be sure tht adding a predictor is helping
+    print("I found the best combination")
+    print(paste(", with an AIC of : ", AIC_old))
+    print(paste("using the foloowing predictors :"))
+    print(used_pred)
+    # if it is not smaller break, don't add the last predictor and store the model
+    final_formule <- as.formula(paste("GPP_NT_VUT_REF ~", paste(used_pred, collapse = " + ")))
+    mod_final <- lm(final_formule, data = df, na.action = na.exclude)
+    break
+  }
+  
+  # if the prediction is better with the new predictor : 
+  # update AIC  
+  AIC_old <- AIC_new
+  # Add the new predictor to the list of predictor that should be used
+  used_pred <- c(used_pred,predictors[index_best_model])
+  
+ 
+  
+}
+```
+The best model to predict GPP_NT_VUT_REF, is a model using 9 predictors, as mentioned before, the first one PPFD_IN is the incoming Photosynthetic photon flux density. The other one are : the incoming longwave radiation (LW_IN_F), the vapor pressure deficit (VPD_F), the air temperature (TA_F_MDS), the incoming shortwave radiation (SW_IN_F), the precipitation (P_F), the wind speed (WS_F), the mole fraction of CO2 (CO2_F_MDS) and the atmospheric pressure (PA_F).
+
+It is interesting to notice that 7 of the nine selected predictor are in the 9 first column of the dataframe. This observation could be influenced by the iterative nature of the stepwise regression. It is also interesting that an important part of the variables not selected are variables using an MDS (marginal distribution sampling) gap filling method. As the selected variable often use a combination of gap filling methods. 
+
+These 9 predictors form the combination giving the lowest AIC value. To visualize the accuracy of the model a density plot has been made. The x-axis represent the actual GPP value, and the Y axis the predicted GPP value. The density plot has been chosen because of the important number of pair of value, to help the lecture of the plot. The red line show the y=x diagonal, if the model was perfect, all the points would be on this line. 
+
+
+```{r density plot, echo = FALSE, message = FALSE, warning = FALSE}
+# Predict values
+df$GPP_pred <- predict(mod_final)
+# Plot
+ggplot(df, aes(x = GPP_NT_VUT_REF, y = GPP_pred)) +
+  stat_density_2d(aes(fill = after_stat(level)), geom = "polygon", contour = TRUE) +
+  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +
+  scale_fill_viridis_c() +
+  labs(
+    x = expression(paste("Observed GPP")),
+    y = expression(paste("Predicted GPP")),
+    title = "Density plot of Observed vs. Predicted GPP"
+  ) +
+  theme_minimal()
+```
+
+The plot shows that the prediction are good, but not perfect. The small GPP values, where the points density is maximal, tend to be overestimate, as the high GPP values tend to be underestimate.
+
+To complete the visualization, an other plot has been made, showing how much each predictor contribute to reduce the AIC, going from an AIC of AIC_values 77577.87 for the model with only one predictor, to 72357.62 for the final model. 
+
+```{r plot evolution of AIC, echo = FALSE, message = FALSE, warning = FALSE}
+# create df
+df_aic <- data.frame(
+  Step = 1:length(AIC_vec),
+  AIC = AIC_vec
+)
+
+# Evolution of AIC
+ggplot(df_aic, aes(x = Step, y = AIC)) +
+  geom_line(color = "steelblue", size = 1) +
+  geom_point(color = "darkred", size = 2) +
+  labs(
+    title = "Evolution of AIC",
+    x = "Number of predictor",
+    y = "AIC"
+  ) +
+  scale_x_continuous(breaks = 1:10)
+  theme_minimal()
+```
+
+Every point of this plot represent the AIC of each step of the stepwise regression, the number on ax x is the number of predictor at this step. As expected the addition of a new predictor is less and less useful to reduce the AIC, until the addition of a tenth predictor, who increase the AIC again.
+
